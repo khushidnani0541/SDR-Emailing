@@ -6,21 +6,46 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "worker": "tsx --tsconfig tsconfig.json src/worker/index.ts",
+    "db:push": "drizzle-kit push",
+    "test": "vitest run",
+    "test:e2e": "next build && playwright test",
+    "typecheck": "next typegen && tsc --noEmit",
+    "seed:sdrs": "tsx --tsconfig tsconfig.json src/db/seed-sdrs.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.133.0",
+    "drizzle-orm": "^0.45.4",
+    "exceljs": "^4.4.0",
+    "google-auth-library": "^11.2.0",
+    "googleapis": "^185.0.0",
+    "iron-session": "^9.0.1",
+    "mammoth": "^1.13.0",
     "next": "16.4.0",
+    "papaparse": "^5.7.0",
+    "pg": "^8.23.1",
+    "pg-boss": "^12.37.1",
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "@tailwindcss/turbopack": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22.20.5",
+    "@types/papaparse": "^5.5.2",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "dotenv": "^18.0.7",
+    "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.4.0",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "tsx": "^4.23.15",
+    "typescript": "^5",
+    "vitest": "^5.0.3"
   }
 }

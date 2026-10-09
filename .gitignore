@@ -101,3 +101,5 @@
     # Temporary folders
     tmp/
     temp/
+# Local dev Postgres data
+.pgdata/
