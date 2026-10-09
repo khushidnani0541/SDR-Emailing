@@ -77,6 +77,13 @@ This repo is registered in AI Studio Manager as **SDR Emailing**. Deploy it from
 - **Address:** it is served at `https://bd07d3b2-49b0-4e57-a076-192e9c7ebd59.iocompute.ai`.
 - **Worker:** the background worker starts inside the same process (`src/instrumentation.ts`), so one deployment runs everything.
 - **Secrets:** the deploy clone only gets `PORT` and `NODE_ENV`. Put the other values in `frontend/.env.production.local` inside the deploy clone (`~/apps/aistudiomanager/backend/repos/<id>/frontend/`). The file is untracked, so it survives redeploys. Set `APP_URL` to the public URL.
+  - This file already exists on the VM. Only `ANTHROPIC_API_KEY`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` remain to fill in.
+- **Database:** production Postgres runs under pm2 as `sdr-cadence-postgres`.
+  - Port: 5434. Data: `~/apps/sdr-cadence/pgdata`. Credentials: `~/apps/sdr-cadence/db.env`.
+  - The schema is applied and the SDR roster is seeded.
+  - After changing `src/db/schema.ts`, re-apply with `DATABASE_URL=… npm run db:push`.
+- **Google OAuth:** set up per [`docs/google-oauth-setup.md`](docs/google-oauth-setup.md). It's free, and the consent screen is Internal to faclon.com.
+- **Case-study attachments:** configure them under Settings → Case study files once the Collateral Library serves files. Until then, Day 4 offers to send the case study instead.
 
 ## Verifying
 

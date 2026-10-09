@@ -2,6 +2,7 @@
 
 export const EMAIL_DAYS = [1, 4, 7, 12] as const;
 export const CALL_DAYS = [1, 3, 9, 12] as const;
+export const LINKEDIN_DAY = 6; // LinkedIn connection request (manual SDR task)
 export type EmailDay = (typeof EMAIL_DAYS)[number];
 
 // Prospects are US-based: cadence days and send times follow US Eastern time by default.

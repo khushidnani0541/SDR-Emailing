@@ -1,7 +1,13 @@
 "use client";
 
 import { useActionState } from "react";
-import { importTemplatesAction, saveOrgSettingsAction, saveSettingsAction, type ActionResult } from "@/app/actions";
+import {
+  importTemplatesAction,
+  saveCaseStudyFilesAction,
+  saveOrgSettingsAction,
+  saveSettingsAction,
+  type ActionResult,
+} from "@/app/actions";
 import { Alert, Button, Field, inputClass, textareaClass } from "./ui";
 
 function Result({ state }: { state: ActionResult | null }) {
@@ -72,12 +78,48 @@ export function TemplateImportForm({ docUrl }: { docUrl: string }) {
   const [state, action, pending] = useActionState<ActionResult | null, FormData>(importTemplatesAction, null);
   return (
     <form action={action} className="space-y-3">
-      <Field label="SDR cadence doc (Google Docs link)" hint='The doc needs "Day 1", "Day 4", "Day 7" and "Day 12" headings. Re-import any time the templates change.'>
-        <input name="docUrl" type="url" className={inputClass} defaultValue={docUrl} placeholder="https://docs.google.com/document/d/…" required />
+      <p className="text-xs text-muted">
+        The doc needs &ldquo;Day 1&rdquo;, &ldquo;Day 4&rdquo;, &ldquo;Day 6&rdquo; (LinkedIn), &ldquo;Day 7&rdquo; and &ldquo;Day 12&rdquo; headings. Re-import whenever the templates change.
+      </p>
+      <Field label="Upload the doc (.docx)" hint="Use this for a Word file stored in Drive (File → Download → .docx).">
+        <input name="file" type="file" accept=".docx,.txt" className="block text-sm" />
+      </Field>
+      <Field label="…or a native Google Docs link">
+        <input name="docUrl" type="url" className={inputClass} defaultValue={docUrl} placeholder="https://docs.google.com/document/d/…" />
       </Field>
       <div className="flex items-center gap-3">
         <Button type="submit" disabled={pending}>
           {pending ? "Importing…" : "Import templates"}
+        </Button>
+        <Result state={state} />
+      </div>
+    </form>
+  );
+}
+
+export function CaseStudyFilesForm({ urlTemplate, byDocId }: { urlTemplate: string; byDocId: Record<string, string> }) {
+  const [state, action, pending] = useActionState<ActionResult | null, FormData>(saveCaseStudyFilesAction, null);
+  return (
+    <form action={action} className="space-y-3">
+      <Field
+        label="File URL pattern"
+        hint="For when the Collateral Library serves files: a download URL with {id} where the document id goes, e.g. https://data-room.faclon.com/…/files/{id}"
+      >
+        <input name="urlTemplate" className={inputClass} defaultValue={urlTemplate} placeholder="https://…/{id}" />
+      </Field>
+      <Field label="Or individual files" hint="One per line: document-id = https://link-to.pdf (PDF, PPTX or DOCX, up to 10 MB). These win over the pattern.">
+        <textarea
+          name="byDocId"
+          className={`${textareaClass} min-h-24 font-mono text-xs`}
+          defaultValue={Object.entries(byDocId)
+            .map(([id, url]) => `${id} = ${url}`)
+            .join("\n")}
+          placeholder="jsw-cements-dolvi-poc-results-summary = https://…/case-study.pdf"
+        />
+      </Field>
+      <div className="flex items-center gap-3">
+        <Button type="submit" disabled={pending}>
+          Save
         </Button>
         <Result state={state} />
       </div>

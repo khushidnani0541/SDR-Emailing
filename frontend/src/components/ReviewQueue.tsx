@@ -313,6 +313,13 @@ function EmailRow({ email: e, selectable, selected, onToggle }: { email: ReviewE
           )}
           <textarea className={cx(textareaClass, "min-h-56")} value={body} onChange={(ev) => setBody(ev.target.value)} aria-label="Email body" />
           {e.rationale && <p className="text-xs text-muted">Why this angle: {e.rationale}</p>}
+          {e.attachment && (
+            <p className={cx("text-xs", e.attachment.url ? "text-ok" : "text-muted")}>
+              {e.attachment.url
+                ? `Attached to the Gmail draft: ${e.attachment.title}`
+                : `Suggested case study: ${e.attachment.title} (${e.attachment.docId}). Not attached: no file is configured in Settings. You can attach it in the Gmail draft.`}
+            </p>
+          )}
           {e.proofPoints.length > 0 && <p className="text-xs text-muted">Proof points used: {e.proofPoints.join(" · ")}</p>}
           <p className="text-xs text-muted">Your Gmail signature from Settings is added automatically.</p>
           <div className="flex flex-wrap items-center gap-2">

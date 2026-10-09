@@ -3,10 +3,11 @@ import { getCurrentUser } from "@/auth/current-user";
 import { env } from "@/lib/env";
 import { effectiveSettings } from "@/services/cadence/actions";
 import { getAppSettings } from "@/services/cadence/context";
-import { getActiveTemplates } from "@/services/drafting/templates";
-import { EMAIL_DAYS } from "@/services/cadence/calendar";
-import { OrgSettingsForm, SdrSettingsForm, TemplateImportForm } from "@/components/SettingsForms";
-import { Alert, Badge, Card, PageHeader, Skeleton } from "@/components/ui";
+import { getActiveTemplates, TEMPLATE_DAYS } from "@/services/drafting/templates";
+import { LINKEDIN_DAY } from "@/services/cadence/calendar";
+import { attachmentsConfigured } from "@/services/attachments/case-studies";
+import { CaseStudyFilesForm, OrgSettingsForm, SdrSettingsForm, TemplateImportForm } from "@/components/SettingsForms";
+import { Badge, Card, PageHeader, Skeleton } from "@/components/ui";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -52,19 +53,19 @@ async function Settings() {
         />
       </Section>
 
-      <Section title="Email templates" description="Shared by all SDRs. Drafts follow these guidelines for each cadence day.">
-        {templates.version === 0 && (
-          <div className="mb-4">
-            <Alert tone="warn">Using placeholder templates. Import the SDR cadence doc to use the real ones.</Alert>
-          </div>
-        )}
+      <Section
+        title="Cadence templates"
+        description="Shared by all SDRs. Emails keep this wording and only the {{placeholders}} are filled from research. Day 12 needs no AI at all."
+      >
         <TemplateImportForm docUrl={org.cadenceDocUrl ?? ""} />
         <details className="mt-4 text-sm">
-          <summary className="cursor-pointer text-muted">Current guidelines {templates.version ? `(v${templates.version})` : "(placeholder)"}</summary>
+          <summary className="cursor-pointer text-muted">
+            Current templates {templates.version ? `(imported v${templates.version})` : "(built-in copy of the SDR Cadence doc)"}
+          </summary>
           <div className="mt-3 space-y-3">
-            {EMAIL_DAYS.map((d) => (
+            {TEMPLATE_DAYS.map((d) => (
               <div key={d}>
-                <p className="font-medium">Day {d}</p>
+                <p className="font-medium">Day {d}{d === LINKEDIN_DAY ? " · LinkedIn connection request" : " · Email"}</p>
                 <p className="whitespace-pre-wrap text-muted">{templates.byDay[d]}</p>
               </div>
             ))}
@@ -72,7 +73,21 @@ async function Settings() {
         </details>
       </Section>
 
-      <Section title="Referenceable clients" description="Shared by all SDRs.">
+      <Section
+        title="Case study files"
+        description="Day 4 says the case study is attached. Until a file source is configured here, emails offer to send it instead and show the suggested case study for you to attach manually."
+      >
+        <div className="mb-4">
+          {attachmentsConfigured(org.caseStudyFiles) ? (
+            <Badge tone="ok">Attachments on</Badge>
+          ) : (
+            <Badge>Attachments off: the Collateral Library doesn&apos;t serve files yet</Badge>
+          )}
+        </div>
+        <CaseStudyFilesForm urlTemplate={org.caseStudyFiles?.urlTemplate ?? ""} byDocId={org.caseStudyFiles?.byDocId ?? {}} />
+      </Section>
+
+      <Section title="Referenceable clients" description="Shared by all SDRs. Used for {{Relevant Companies}} in Day 1.">
         <OrgSettingsForm referenceableClients={org.referenceableClients ?? []} />
       </Section>
     </div>

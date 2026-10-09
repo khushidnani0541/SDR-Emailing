@@ -40,6 +40,9 @@ export const emailStatus = pgEnum("email_status", [
 
 export const callStatus = pgEnum("call_status", ["pending", "done"]);
 
+/** Case study chosen for an email; url is null until a downloadable file is configured. */
+export type EmailAttachment = { docId: string; title: string; url: string | null };
+
 export const llmStage = pgEnum("llm_stage", [
   "classify",
   "industry",
@@ -106,6 +109,9 @@ export const prospects = pgTable(
     companyKey: text("company_key").notNull(), // normalized, FK-ish to companies.key
     linkedinUrl: text("linkedin_url"),
     email: text("email").notNull(),
+    phone: text("phone"), // for the SDR's call list
+    location: text("location"), // e.g. company state; helps disambiguate company research
+    prospectTimeZone: text("prospect_time_zone"), // as given in the sheet (e.g. "E")
     personKey: text("person_key").notNull(), // FK-ish to person_research.key
     status: prospectStatus("status").notNull().default("researching"),
     stopReason: text("stop_reason"),
@@ -183,6 +189,7 @@ export const emails = pgTable(
     body: text("body"),
     rationale: text("rationale"),
     proofPoints: jsonb("proof_points").$type<string[]>(),
+    attachment: jsonb("attachment").$type<EmailAttachment | null>(),
     guardrailWarnings: jsonb("guardrail_warnings").$type<string[]>().notNull().default([]),
     templateVersion: integer("template_version"),
     status: emailStatus("status").notNull().default("generating"),
@@ -208,7 +215,8 @@ export const callTasks = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     prospectId: uuid("prospect_id").notNull().references(() => prospects.id),
     userId: uuid("user_id").notNull().references(() => users.id),
-    day: integer("day").notNull(), // 1 | 3 | 9 | 12
+    day: integer("day").notNull(), // calls: 1 | 3 | 9 | 12, LinkedIn: 6
+    kind: text("kind").notNull().default("call"), // call | linkedin
     dueDate: date("due_date").notNull(),
     status: callStatus("status").notNull().default("pending"),
     outcome: text("outcome"), // no_answer | connected | meeting_booked | not_interested | wrong_person
@@ -280,7 +288,14 @@ export const cacheHits = pgTable("cache_hits", {
 export type AppSettings = {
   referenceableClients?: string[]; // client names SDRs may name in emails
   cadenceDocUrl?: string;
+  caseStudyFiles?: CaseStudyFileConfig;
 };
+
+/**
+ * Where to download case-study files for attachments. Either a URL pattern with {id}
+ * (e.g. a future Collateral Librarian file endpoint) or explicit per-document URLs.
+ */
+export type CaseStudyFileConfig = { urlTemplate?: string; byDocId?: Record<string, string> };
 
 export const appSettings = pgTable("app_settings", {
   id: text("id").primaryKey(),

@@ -6,7 +6,8 @@ import { errorMessage, mapLimit } from "@/lib/concurrency";
 import { anthropic } from "@/services/llm/client";
 import { logUsage } from "@/services/llm/tracked";
 import { usageFromApi } from "@/services/llm/pricing";
-import { applyGuardrails, buildDraftRequest, DraftSchema, parseDraftMessage, type DraftInput } from "@/services/drafting/draft";
+import { buildDraftRequest, DraftSchema, parseDraftMessage, type DraftInput } from "@/services/drafting/draft";
+import { attachmentsEnabled, persistDraft, persistStaticIfPossible, type DraftOrgSettings } from "./persist";
 import { getActiveTemplates } from "@/services/drafting/templates";
 import { checkThread } from "@/services/gmail/gmail";
 import { cadenceDate, localDate, type EmailDay } from "./calendar";
@@ -87,16 +88,16 @@ export async function morningRun(userId: string): Promise<Record<string, number>
 
     // 4. Draft.
     const templates = await getActiveTemplates();
-    const allow = (await getAppSettings()).referenceableClients ?? [];
+    const org = await getAppSettings();
     if (live.length >= BATCH_MIN) {
-      const { done, leftovers } = await draftViaBatch(ctx, run.id, live, today, templates, allow);
+      const { done, leftovers } = await draftViaBatch(ctx, run.id, live, today, templates, org);
       stats.batched = done;
       stats.drafted += done;
-      const sync = await mapLimit(leftovers, 3, (d) => draftAndStore({ ...ctx, prospectId: d.prospect.id }, d.prospect, d.day, today, templates, allow));
+      const sync = await mapLimit(leftovers, 3, (d) => draftAndStore({ ...ctx, prospectId: d.prospect.id }, d.prospect, d.day, today, templates, org));
       stats.drafted += sync.filter((r) => r.status === "fulfilled").length;
       stats.failed += sync.filter((r) => r.status === "rejected").length;
     } else {
-      const sync = await mapLimit(live, 3, (d) => draftAndStore({ ...ctx, prospectId: d.prospect.id }, d.prospect, d.day, today, templates, allow));
+      const sync = await mapLimit(live, 3, (d) => draftAndStore({ ...ctx, prospectId: d.prospect.id }, d.prospect, d.day, today, templates, org));
       stats.drafted = sync.filter((r) => r.status === "fulfilled").length;
       stats.failed = sync.filter((r) => r.status === "rejected").length;
     }
@@ -119,9 +120,10 @@ async function draftViaBatch(
   items: { prospect: Prospect; day: EmailDay }[],
   today: string,
   templates: Awaited<ReturnType<typeof getActiveTemplates>>,
-  allow: string[],
+  org: DraftOrgSettings,
 ): Promise<{ done: number; leftovers: typeof items }> {
   const leftovers: typeof items = [];
+  let done = 0;
   const prepared: { emailId: string; item: (typeof items)[number]; input: DraftInput }[] = [];
 
   // Cached research only; sorted by industry so the prompt-cache prefix lines up.
@@ -132,14 +134,21 @@ async function draftViaBatch(
       .onConflictDoUpdate({ target: [schema.emails.prospectId, schema.emails.day], set: { status: "generating", updatedAt: new Date() } })
       .returning();
     try {
-      prepared.push({ emailId: row.id, item, input: await loadDraftInput({ ...ctx, prospectId: item.prospect.id, emailId: row.id }, item.prospect, item.day) });
+      // Fixed-copy days (Day 12) are filled directly: no research, no model call.
+      if (await persistStaticIfPossible(row.id, item.prospect, item.day, templates)) {
+        done++;
+        continue;
+      }
+      const input = await loadDraftInput({ ...ctx, prospectId: item.prospect.id, emailId: row.id }, item.prospect, item.day);
+      input.attachmentsEnabled = attachmentsEnabled(org);
+      prepared.push({ emailId: row.id, item, input });
     } catch (err) {
       console.error(`[morning] context failed for ${item.prospect.id}`, err);
       leftovers.push(item);
     }
   }
   prepared.sort((a, b) => a.input.industryKey.localeCompare(b.input.industryKey));
-  if (!prepared.length) return { done: 0, leftovers };
+  if (!prepared.length) return { done, leftovers };
 
   const client = anthropic();
   const batch = await client.messages.batches.create({
@@ -165,7 +174,6 @@ async function draftViaBatch(
   }
 
   const byId = new Map(prepared.map((p) => [p.emailId, p]));
-  let done = 0;
   for await (const result of await client.messages.batches.results(batch.id)) {
     const p = byId.get(result.custom_id);
     if (!p) continue;
@@ -177,22 +185,7 @@ async function draftViaBatch(
     const message = result.result.message;
     await logUsage({ stage: "draft", ...ctx, prospectId: p.item.prospect.id, emailId: p.emailId }, env().MODEL_DRAFT, usageFromApi(message.usage), { batch: true });
     try {
-      const draft = parseDraftMessage(message, p.item.day);
-      const checks = applyGuardrails(draft, p.input, allow);
-      await db
-        .update(schema.emails)
-        .set({
-          subject: draft.subject,
-          body: draft.body,
-          rationale: draft.rationale,
-          proofPoints: draft.proofPointsUsed,
-          guardrailWarnings: checks.warnings,
-          error: checks.errors.length ? checks.errors.join("; ") : null,
-          templateVersion: templates.version,
-          status: "pending_review",
-          updatedAt: new Date(),
-        })
-        .where(eq(schema.emails.id, p.emailId));
+      await persistDraft(p.emailId, parseDraftMessage(message, p.item.day), p.input, templates, org);
       done++;
     } catch (err) {
       console.error(`[morning] batch draft unusable for ${p.emailId}: ${errorMessage(err)}`);

@@ -7,7 +7,8 @@ import { ensureIndustryBrief } from "@/services/research/industry";
 import { ensureCompanyResearch, type CompanyRecord } from "@/services/research/company";
 import { ensurePersonResearch } from "@/services/research/person";
 import type { IndustryBrief } from "@/services/research/types";
-import { applyGuardrails, draftEmail } from "@/services/drafting/draft";
+import { draftEmail } from "@/services/drafting/draft";
+import { attachmentsEnabled, persistDraft, persistStaticIfPossible, type DraftOrgSettings } from "./persist";
 import { getActiveTemplates } from "@/services/drafting/templates";
 import { DEFAULT_TIMEZONE, localDate } from "./calendar";
 import { getAppSettings, loadDraftInput } from "./context";
@@ -52,6 +53,9 @@ export async function ingestUpload(userId: string, source: string, rows: string[
           email: p.email,
           personKey: p.personKey,
           callNotes: p.callNotes,
+          phone: p.phone,
+          location: p.location,
+          prospectTimeZone: p.timeZone,
         })),
       );
     }
@@ -82,9 +86,9 @@ export async function runUploadPipeline(uploadId: string): Promise<void> {
     stats.prospects = prospects.length;
 
     // 1. Classify only companies we have never classified.
-    const byCompany = new Map<string, { name: string; titles: string[] }>();
+    const byCompany = new Map<string, { name: string; titles: string[]; location: string | null }>();
     for (const p of prospects) {
-      const entry = byCompany.get(p.companyKey) ?? { name: p.companyName, titles: [] };
+      const entry = byCompany.get(p.companyKey) ?? { name: p.companyName, titles: [], location: p.location };
       if (p.title) entry.titles.push(p.title);
       byCompany.set(p.companyKey, entry);
     }
@@ -117,7 +121,8 @@ export async function runUploadPipeline(uploadId: string): Promise<void> {
     const companyKeys = [...byCompany.keys()];
     const companyResults = await mapLimit(companyKeys, RESEARCH_CONCURRENCY, (key) => {
       const industryKey = industryOf.get(key) ?? "manufacturing/general";
-      return ensureCompanyResearch(ctx, { key, displayName: byCompany.get(key)!.name, industryKey }, briefs.get(industryKey) ?? null, byCompany.get(key)!.titles);
+      const c = byCompany.get(key)!;
+      return ensureCompanyResearch(ctx, { key, displayName: c.name, industryKey, location: c.location }, briefs.get(industryKey) ?? null, c.titles);
     });
     companyResults.forEach((r, i) => {
       if (r.status === "fulfilled") companies.set(companyKeys[i], r.value);
@@ -139,12 +144,12 @@ export async function runUploadPipeline(uploadId: string): Promise<void> {
 
     // 5. Day 1 drafts, grouped by industry so the cached prompt prefix is reused.
     const templates = await getActiveTemplates();
-    const allow = (await getAppSettings()).referenceableClients ?? [];
+    const org = await getAppSettings();
     const dueDate = localDate(upload.day1SendAt ?? new Date(), tz);
     const ordered = [...prospects].sort((a, b) =>
       (companies.get(a.companyKey)?.industryKey ?? "").localeCompare(companies.get(b.companyKey)?.industryKey ?? ""),
     );
-    const draftResults = await mapLimit(ordered, DRAFT_CONCURRENCY, (p) => draftAndStore({ ...ctx, prospectId: p.id }, p, 1, dueDate, templates, allow));
+    const draftResults = await mapLimit(ordered, DRAFT_CONCURRENCY, (p) => draftAndStore({ ...ctx, prospectId: p.id }, p, 1, dueDate, templates, org));
     stats.drafted = draftResults.filter((r) => r.status === "fulfilled").length;
     stats.failed = draftResults.length - stats.drafted;
 
@@ -165,7 +170,7 @@ export async function draftAndStore(
   day: 1 | 4 | 7 | 12,
   dueDate: string,
   templates: Awaited<ReturnType<typeof getActiveTemplates>>,
-  allowlist: string[],
+  org: DraftOrgSettings,
   regenerateInstruction?: string | null,
 ): Promise<string> {
   const [row] = await db
@@ -177,24 +182,15 @@ export async function draftAndStore(
     })
     .returning();
   try {
-    const input = await loadDraftInput({ ...ctx, emailId: row.id }, prospect, day);
-    input.regenerateInstruction = regenerateInstruction ?? null;
-    const draft = await draftEmail({ ...ctx, emailId: row.id }, input, templates);
-    const checks = applyGuardrails(draft, input, allowlist);
-    await db
-      .update(schema.emails)
-      .set({
-        subject: draft.subject,
-        body: draft.body,
-        rationale: draft.rationale,
-        proofPoints: draft.proofPointsUsed,
-        guardrailWarnings: checks.warnings,
-        error: checks.errors.length ? checks.errors.join("; ") : null,
-        templateVersion: templates.version,
-        status: "pending_review",
-        updatedAt: new Date(),
-      })
-      .where(eq(schema.emails.id, row.id));
+    // Fixed-copy days need no research or model call (regenerating one still uses the model).
+    const isStatic = !regenerateInstruction && (await persistStaticIfPossible(row.id, prospect, day, templates));
+    if (!isStatic) {
+      const input = await loadDraftInput({ ...ctx, emailId: row.id }, prospect, day);
+      input.regenerateInstruction = regenerateInstruction ?? null;
+      input.attachmentsEnabled = attachmentsEnabled(org);
+      const draft = await draftEmail({ ...ctx, emailId: row.id }, input, templates);
+      await persistDraft(row.id, draft, input, templates, org);
+    }
     if (prospect.status === "researching") {
       await db.update(schema.prospects).set({ status: "active" }).where(eq(schema.prospects.id, prospect.id));
     }

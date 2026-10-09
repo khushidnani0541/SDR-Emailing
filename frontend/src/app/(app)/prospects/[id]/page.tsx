@@ -172,7 +172,7 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
         <div className="space-y-5">
           <Section title="Cadence">
             <ol className="space-y-2">
-              {[1, 3, 4, 7, 9, 12].map((day) => {
+              {[1, 3, 4, 6, 7, 9, 12].map((day) => {
                 const email = emails.find((e) => e.day === day);
                 const call = calls.find((c) => c.day === day);
                 return (
@@ -185,7 +185,7 @@ async function Detail({ params }: { params: Promise<{ id: string }> }) {
                     )}
                     {call && (
                       <Badge tone={call.status === "done" ? "ok" : "neutral"}>
-                        call: {call.status === "done" ? (call.outcome ?? "done").replaceAll("_", " ") : call.dueDate}
+                        {call.kind === "linkedin" ? "LinkedIn" : "call"}: {call.status === "done" ? (call.outcome ?? "done").replaceAll("_", " ") : call.dueDate}
                       </Badge>
                     )}
                     {!email && !call && [4, 7, 12].includes(day) && <span className="text-xs text-muted">email not drafted yet</span>}

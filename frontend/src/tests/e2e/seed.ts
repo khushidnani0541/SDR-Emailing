@@ -1,5 +1,6 @@
 // E2E FIXTURE DATA (clearly labelled). Used only by the Playwright suite against the
 // throwaway `sdr_cadence_test` database. Live runs use real research from the pipeline.
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "@/db/schema";
@@ -126,7 +127,11 @@ export async function seed(databaseUrl: string): Promise<{ userId: string }> {
         status: "pending_review" as const,
       },
     ]);
-    await db.insert(schema.callTasks).values({ prospectId: prospects[2].id, userId: user.id, day: 3, dueDate: today, status: "pending" as const });
+    await db.update(schema.prospects).set({ phone: "+1 574-340-0023" }).where(eq(schema.prospects.id, prospects[2].id));
+    await db.insert(schema.callTasks).values([
+      { prospectId: prospects[2].id, userId: user.id, day: 3, kind: "call", dueDate: today, status: "pending" as const },
+      { prospectId: prospects[0].id, userId: user.id, day: 6, kind: "linkedin", dueDate: today, status: "pending" as const },
+    ]);
 
     await db.insert(schema.usageLogs).values([
       { userId: user.id, stage: "industry" as const, model: "claude-sonnet-5", inputTokens: 7000, outputTokens: 2000, costUsd: "0.034000", industryKey: "manufacturing/cement" },

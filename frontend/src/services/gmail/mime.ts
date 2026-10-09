@@ -1,11 +1,14 @@
 // Pure RFC 2822 message builder for Gmail's `raw` field.
 
+export type MimeAttachment = { filename: string; mimeType: string; data: Buffer };
+
 export type OutgoingEmail = {
   from: { name: string | null; email: string };
   to: { name: string; email: string };
   subject: string;
   body: string; // plain text, already including signature
   inReplyTo?: string | null; // Message-ID of the Day 1 email, for threading
+  attachments?: MimeAttachment[];
 };
 
 function encodeHeader(value: string): string {
@@ -23,20 +26,37 @@ export function replySubject(day1Subject: string): string {
   return /^re:/i.test(day1Subject.trim()) ? day1Subject.trim() : `Re: ${day1Subject.trim()}`;
 }
 
-export function buildMime(msg: OutgoingEmail): string {
+function base64Lines(data: Buffer): string {
+  return data.toString("base64").replace(/(.{76})/g, "$1\r\n");
+}
+
+export function buildMime(msg: OutgoingEmail, boundary = `sdr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`): string {
   const headers = [
     `From: ${address(msg.from.name, msg.from.email)}`,
     `To: ${address(msg.to.name, msg.to.email)}`,
     `Subject: ${encodeHeader(msg.subject.replace(/[\r\n]+/g, " "))}`,
     "MIME-Version: 1.0",
-    'Content-Type: text/plain; charset="UTF-8"',
-    "Content-Transfer-Encoding: base64",
   ];
   if (msg.inReplyTo) headers.push(`In-Reply-To: ${msg.inReplyTo}`, `References: ${msg.inReplyTo}`);
-  const body = Buffer.from(msg.body.replace(/\r?\n/g, "\r\n"), "utf8")
-    .toString("base64")
-    .replace(/(.{76})/g, "$1\r\n");
-  return `${headers.join("\r\n")}\r\n\r\n${body}`;
+  const text = base64Lines(Buffer.from(msg.body.replace(/\r?\n/g, "\r\n"), "utf8"));
+
+  if (!msg.attachments?.length) {
+    headers.push('Content-Type: text/plain; charset="UTF-8"', "Content-Transfer-Encoding: base64");
+    return `${headers.join("\r\n")}\r\n\r\n${text}`;
+  }
+
+  headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
+  const parts = [
+    `--${boundary}\r\nContent-Type: text/plain; charset="UTF-8"\r\nContent-Transfer-Encoding: base64\r\n\r\n${text}`,
+    ...msg.attachments.map((a) => {
+      const name = encodeHeader(a.filename.replace(/["\r\n]/g, ""));
+      return (
+        `--${boundary}\r\nContent-Type: ${a.mimeType}; name="${name}"\r\n` +
+        `Content-Disposition: attachment; filename="${name}"\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Lines(a.data)}`
+      );
+    }),
+  ];
+  return `${headers.join("\r\n")}\r\n\r\n${parts.join("\r\n")}\r\n--${boundary}--`;
 }
 
 export function toRaw(mime: string): string {

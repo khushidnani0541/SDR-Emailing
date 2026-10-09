@@ -48,7 +48,7 @@ async function Today() {
 
         <section aria-labelledby="calls-heading">
           <h2 id="calls-heading" className="mb-2 text-sm font-semibold">
-            Calls <span className="font-normal text-muted">· Day 3, 9 and 12 follow-up calls</span>
+            Calls &amp; LinkedIn <span className="font-normal text-muted">· Day 3, 9 and 12 calls, Day 6 connection requests</span>
           </h2>
           <CallList calls={data.calls} />
         </section>

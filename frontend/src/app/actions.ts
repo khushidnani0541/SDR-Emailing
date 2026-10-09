@@ -21,7 +21,8 @@ import {
   type CallOutcome,
 } from "@/services/cadence/actions";
 import { zonedTime } from "@/services/cadence/calendar";
-import { importCadenceDoc } from "@/services/drafting/templates";
+import { importCadenceDoc, importCadenceFile } from "@/services/drafting/templates";
+import { parseDocUrlLines } from "@/services/attachments/case-studies";
 import { getAppSettings, saveAppSettings } from "@/services/cadence/context";
 
 export type ActionResult<T = undefined> = { ok: true; data?: T; message?: string } | { ok: false; error: string };
@@ -232,10 +233,40 @@ export async function importTemplatesAction(_: unknown, form: FormData): Promise
   try {
     const user = await getCurrentUser();
     const url = String(form.get("docUrl") ?? "").trim();
-    const { version, days } = await importCadenceDoc(user.id, url);
-    await saveAppSettings({ ...(await getAppSettings()), cadenceDocUrl: url });
+    const file = form.get("file");
+    let result: { version: number; days: number[] };
+    if (file instanceof File && file.size > 0) {
+      if (file.size > 5_000_000) return { ok: false, error: "File is larger than 5 MB" };
+      if (!/\.(docx|txt|md)$/i.test(file.name)) return { ok: false, error: "Upload a .docx or .txt file" };
+      result = await importCadenceFile(file.name, await file.arrayBuffer());
+    } else if (url) {
+      result = await importCadenceDoc(user.id, url);
+      await saveAppSettings({ ...(await getAppSettings()), cadenceDocUrl: url });
+    } else {
+      return { ok: false, error: "Paste a Google Docs link or choose a .docx file" };
+    }
+    const { version, days } = result;
     refresh();
     return { ok: true, message: `Imported template v${version} for Day ${days.join(", ")}` };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+/** Where Day 4 case-study files come from (until the Collateral Librarian serves files itself). */
+export async function saveCaseStudyFilesAction(_: unknown, form: FormData): Promise<ActionResult> {
+  try {
+    await getCurrentUser();
+    const urlTemplate = String(form.get("urlTemplate") ?? "").trim();
+    if (urlTemplate && (!urlTemplate.startsWith("https://") || !urlTemplate.includes("{id}"))) {
+      return { ok: false, error: "The URL pattern must start with https:// and contain {id}" };
+    }
+    const byDocId = parseDocUrlLines(String(form.get("byDocId") ?? ""));
+    await saveAppSettings({ ...(await getAppSettings()), caseStudyFiles: { urlTemplate: urlTemplate || undefined, byDocId } });
+    refresh();
+    const files = Object.keys(byDocId).length;
+    const on = !!urlTemplate || files > 0;
+    return { ok: true, message: on ? `Attachments on (${[urlTemplate && "URL pattern", files && `${files} file link(s)`].filter(Boolean).join(" + ")})` : "Attachments off" };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }

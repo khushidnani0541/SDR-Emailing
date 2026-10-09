@@ -13,6 +13,24 @@ describe("column detection", () => {
   });
 });
 
+describe("Apollo-style export (Yash's sheet)", () => {
+  it("maps Person Linkedin Url, phones, state and time zone but not Company Linkedin Url", () => {
+    const header = ["First Name", "Last Name", "Title", "Company Name", "Email", "Work Direct Phone", "Mobile Phone", "Person Linkedin Url", "Company Linkedin Url", "Company State", "US Time Zone"];
+    const { prospects } = parseRows([
+      header,
+      ["Cory", "Smith", "Production Supervisor", "BCI Solutions, Inc.", "csmith@example.com", "", "+1 574-340-0023", "http://www.linkedin.com/in/cory-smith-65434173", "https://linkedin.com/company/bci", "Indiana", "E"],
+    ]);
+    expect(prospects[0]).toMatchObject({
+      name: "Cory Smith",
+      companyKey: "bci-solutions",
+      linkedinUrl: "https://www.linkedin.com/in/cory-smith-65434173",
+      phone: "+1 574-340-0023",
+      location: "Indiana",
+      timeZone: "E",
+    });
+  });
+});
+
 describe("normalization", () => {
   it("collapses company suffix variants to one key", () => {
     expect(companyKey("JSW Steel Ltd.")).toBe("jsw-steel");

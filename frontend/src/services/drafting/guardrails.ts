@@ -9,6 +9,8 @@ export type GuardrailInput = {
   knownClients: string[];
   referenceableClients: string[];
   identityConfidence?: "high" | "medium" | "low";
+  /** Whether a file will actually be attached to this email. */
+  hasAttachment?: boolean;
 };
 
 export type GuardrailResult = { errors: string[]; warnings: string[] };
@@ -32,6 +34,9 @@ export function checkEmail(input: GuardrailInput): GuardrailResult {
   if (!input.body.trim()) errors.push("Email body is empty");
   if (input.day === 1 && !input.subject?.trim()) errors.push("Day 1 email needs a subject line");
   if (PLACEHOLDER_RE.test(full)) errors.push("Contains an unfilled placeholder");
+  if (/\b(is|are|i've|i have|have)\s+attached\b|\battached (is|are|you'll find)\b/i.test(input.body) && !input.hasAttachment) {
+    errors.push("Says a case study is attached, but no file is configured for it - reword or add the file in Settings");
+  }
   if (PRICING_RE.test(full)) warnings.push("Mentions pricing/commercial terms - Faclon pricing must not appear in cold emails");
   if (MONEY_RE.test(full)) warnings.push("Contains a money figure - make sure it's a client result, not Faclon pricing");
 

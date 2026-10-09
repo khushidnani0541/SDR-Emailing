@@ -25,7 +25,7 @@ Rules:
 
 async function research(
   ctx: Omit<CallCtx, "stage">,
-  company: { key: string; displayName: string; industryKey: string },
+  company: { key: string; displayName: string; industryKey: string; location?: string | null },
   brief: IndustryBrief | null,
   contactTitles: string[],
 ): Promise<CompanyResearch> {
@@ -45,6 +45,7 @@ async function research(
           role: "user",
           content:
             `Company: ${company.displayName}\n` +
+            (company.location ? `Location (from the prospect list, use it to pick the right company): ${company.location}\n` : "") +
             `Provisional industry: ${company.industryKey}\n` +
             (contactTitles.length ? `People we are contacting there: ${contactTitles.join("; ")}\n` : "") +
             (brief ? `\nWhat Faclon offers this industry:\n${briefForPrompt(brief)}\n` : "") +
@@ -62,7 +63,7 @@ export type CompanyRecord = { key: string; displayName: string; industryKey: str
 /** Cached per normalized company (shared across SDRs and uploads). */
 export async function ensureCompanyResearch(
   ctx: Omit<CallCtx, "stage">,
-  company: { key: string; displayName: string; industryKey: string },
+  company: { key: string; displayName: string; industryKey: string; location?: string | null },
   brief: IndustryBrief | null,
   contactTitles: string[] = [],
 ): Promise<CompanyRecord> {

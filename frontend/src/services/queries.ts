@@ -1,7 +1,9 @@
 import { and, asc, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db, schema } from "@/db";
 import { effectiveSettings } from "@/services/cadence/actions";
-import { localDate } from "@/services/cadence/calendar";
+import { LINKEDIN_DAY, localDate } from "@/services/cadence/calendar";
+import { fillStatic, getActiveTemplates } from "@/services/drafting/templates";
+import { firstName } from "@/services/cadence/persist";
 import type { CompanyResearch, IndustryBrief, PersonResearch } from "@/services/research/types";
 
 // Read models for pages. Every function takes the signed-in SDR's id from the data access layer.
@@ -20,6 +22,7 @@ export type ReviewEmail = {
   dueDate: string;
   updatedAt: string; // remounts the editor when the server copy changes
   plannedSendAt: string | null; // Day 1: time set at upload, only while it is still ahead
+  attachment: schema.EmailAttachment | null;
   prospect: { id: string; name: string; title: string | null; company: string; email: string; lastSubject: string | null };
 };
 
@@ -46,6 +49,7 @@ export async function getTodayData(userId: string) {
     .from(schema.emails)
     .where(and(eq(schema.emails.userId, userId), eq(schema.emails.status, "expired"), gte(schema.emails.dueDate, sql`(${today}::date - 3)`)));
 
+  const linkedinTemplate = (await getActiveTemplates()).byDay[LINKEDIN_DAY].split(/\n\s*OR\s*\n/i)[0].trim();
   const calls = await db
     .select({ task: schema.callTasks, prospect: schema.prospects, person: schema.personResearch })
     .from(schema.callTasks)
@@ -67,6 +71,7 @@ export async function getTodayData(userId: string) {
     scheduledFor: email.scheduledFor?.toISOString() ?? null,
     dueDate: email.dueDate,
     updatedAt: email.updatedAt.toISOString(),
+    attachment: email.attachment ?? null,
     plannedSendAt: email.day === 1 && day1SendAt && day1SendAt.getTime() > Date.now() ? day1SendAt.toISOString() : null,
     prospect: {
       id: prospect.id,
@@ -95,6 +100,11 @@ export async function getTodayData(userId: string) {
     calls: calls.map(({ task, prospect, person }) => ({
       id: task.id,
       day: task.day,
+      kind: task.kind === "linkedin" ? ("linkedin" as const) : ("call" as const),
+      phone: prospect.phone,
+      linkedinUrl: prospect.linkedinUrl,
+      linkedinMessage:
+        task.kind === "linkedin" ? fillStatic(linkedinTemplate, { firstName: firstName(prospect.name), company: prospect.companyName }) : null,
       dueDate: task.dueDate,
       overdue: task.dueDate < today,
       prospect: { id: prospect.id, name: prospect.name, title: prospect.title, company: prospect.companyName, email: prospect.email },

@@ -37,14 +37,19 @@ test.describe("signed in SDR", () => {
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /Day 1 · First touch/ })).toBeVisible();
-    await expect(page.getByText("Asha Rao")).toBeVisible();
+    await expect(page.getByRole("button", { name: /Asha Rao/ })).toBeVisible();
     await expect(page.getByText(/Mentions pricing\/commercial terms/)).toBeVisible();
     await expect(page.getByText(/Names client\(s\) not on the referenceable list/)).toBeVisible();
     // Gmail not connected -> approve is disabled with a hint.
     await expect(page.getByRole("button", { name: /Approve & queue 3 in Gmail/ })).toBeDisabled();
     await expect(page.getByText("Connect Gmail in Settings to approve.")).toBeVisible();
-    // Call list with opener from person research.
+    // Call list with phone and opener from person research.
     await expect(page.getByText(/curious how you're planning to keep power per tonne flat/)).toBeVisible();
+    await expect(page.getByRole("link", { name: "+1 574-340-0023" })).toBeVisible();
+    // Day 6 LinkedIn task with the doc's connection note, first name filled in.
+    await expect(page.getByLabel("Connection request message")).toHaveText(/^Hi Asha, we help manufacturing companies/);
+    await page.getByRole("button", { name: "Request sent" }).click();
+    await expect(page.getByLabel("Connection request message")).toHaveCount(0);
     await shot(page, "02-today");
     expect(errors).toEqual([]);
   });
@@ -79,7 +84,7 @@ test.describe("signed in SDR", () => {
     await page.getByLabel("Call outcome").selectOption("meeting_booked");
     await page.getByLabel("Call notes").fill("Booked for Thursday");
     await page.getByRole("button", { name: "Log call" }).click();
-    await expect(page.getByText("No calls due today.")).toBeVisible();
+    await expect(page.getByText("No calls or LinkedIn tasks due today.")).toBeVisible();
     // Her pending Day 1 email is cancelled along with the cadence.
     await expect(page.getByRole("button", { name: /Meera Shah/ })).toHaveCount(0);
     await page.goto("/prospects?status=meeting_booked");
@@ -124,10 +129,16 @@ test.describe("signed in SDR", () => {
     expect(errors).toEqual([]);
   });
 
-  test("settings save and placeholder-template warning", async ({ page }) => {
+  test("settings: cadence templates, case-study files and saving", async ({ page }) => {
     const errors = watchConsole(page);
     await page.goto("/settings");
-    await expect(page.getByText("Using placeholder templates.")).toBeVisible();
+    await page.getByText(/Current templates \(built-in copy of the SDR Cadence doc\)/).click();
+    await expect(page.getByText(/I’ve tried calling\./)).toBeVisible();
+    await expect(page.getByText("Day 6 · LinkedIn connection request")).toBeVisible();
+    await expect(page.getByText(/Attachments off/)).toBeVisible();
+    await page.getByLabel("File URL pattern").fill("https://files.example.com/{id}.pdf");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(page.getByText("Attachments on (URL pattern)")).toBeVisible();
     await page.getByLabel("Email signature").fill("Fixture SDR\nFaclon Labs");
     await page.getByRole("button", { name: "Save settings" }).click();
     await expect(page.getByText("Settings saved")).toBeVisible();

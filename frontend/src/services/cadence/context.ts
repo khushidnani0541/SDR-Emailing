@@ -31,7 +31,7 @@ export async function loadDraftInput(
 
   const company: CompanyRecord = await ensureCompanyResearch(
     { ...ctx, prospectId: prospect.id },
-    { key: prospect.companyKey, displayName: companyRow?.displayName ?? prospect.companyName, industryKey: provisionalIndustry },
+    { key: prospect.companyKey, displayName: companyRow?.displayName ?? prospect.companyName, industryKey: provisionalIndustry, location: prospect.location },
     brief,
     prospect.title ? [prospect.title] : [],
   );

@@ -1,6 +1,18 @@
 // Pure functions: raw sheet rows -> normalized prospects + skipped rows. No I/O here.
 
-export type ColumnKey = "name" | "firstName" | "lastName" | "title" | "company" | "linkedin" | "email" | "notes";
+export type ColumnKey =
+  | "name"
+  | "firstName"
+  | "lastName"
+  | "title"
+  | "company"
+  | "linkedin"
+  | "email"
+  | "notes"
+  | "phone"
+  | "mobile"
+  | "state"
+  | "timeZone";
 export type ColumnMap = Partial<Record<ColumnKey, number>>;
 
 export type ParsedProspect = {
@@ -13,6 +25,9 @@ export type ParsedProspect = {
   email: string;
   personKey: string;
   callNotes: string | null;
+  phone: string | null; // direct line, else mobile
+  location: string | null;
+  timeZone: string | null;
 };
 
 export type SkippedProspect = { row: number; name: string; company: string; reason: string };
@@ -23,9 +38,14 @@ const HEADER_SYNONYMS: Record<ColumnKey, RegExp> = {
   lastName: /^(last\s*name|surname)$/i,
   title: /^(title|job\s*title|designation|role|position)$/i,
   company: /^(company(\s*name)?|organi[sz]ation|account(\s*name)?|employer)$/i,
-  linkedin: /^(linked\s*in|linkedin(\s*(profile|url|link))?(\s*(url|link))?|profile(\s*(url|link))?)$/i,
+  // "Person Linkedin Url" (Apollo exports) but never "Company Linkedin Url"
+  linkedin: /^((person|contact)\s*)?linked\s*in(\s*(profile))?(\s*(url|link))?$|^profile(\s*(url|link))?$/i,
   email: /^(e-?mail(\s*(id|address))?|work\s*e-?mail|business\s*e-?mail)$/i,
   notes: /^(notes?|call\s*notes?|comments?|remarks?|call\s*outcome)$/i,
+  phone: /^(work\s*direct\s*phone|direct\s*(dial|phone)|work\s*phone|phone(\s*number)?|corporate\s*phone)$/i,
+  mobile: /^(mobile(\s*phone)?|cell(\s*phone)?)$/i,
+  state: /^((company|person)\s*)?state$/i,
+  timeZone: /^(us\s*)?time\s*zone$/i,
 };
 
 export function detectColumns(header: string[]): ColumnMap {
@@ -123,6 +143,9 @@ export function parseRows(
       email,
       personKey: personKey(linkedinUrl, email),
       callNotes: cell(r, columns.notes) || null,
+      phone: cell(r, columns.phone) || cell(r, columns.mobile) || null,
+      location: cell(r, columns.state) || null,
+      timeZone: cell(r, columns.timeZone) || null,
     });
   });
 

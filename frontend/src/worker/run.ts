@@ -46,7 +46,7 @@ export async function startWorker(opts: { handleSignals?: boolean } = {}) {
       row.email.day as 1 | 4 | 7 | 12,
       row.email.dueDate,
       await getActiveTemplates(),
-      (await getAppSettings()).referenceableClients ?? [],
+      await getAppSettings(),
       job.data.instruction,
     );
   });

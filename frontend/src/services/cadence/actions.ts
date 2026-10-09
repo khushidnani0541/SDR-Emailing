@@ -5,7 +5,8 @@ import { enqueue, QUEUES } from "@/worker/queue";
 import { deleteDraft, upsertDraft } from "@/services/gmail/gmail";
 import { replySubject, withSignature } from "@/services/gmail/mime";
 import { checkEmail } from "@/services/drafting/guardrails";
-import { CALL_DAYS, cadenceDate, DEFAULT_TIMEZONE, localDate, staggeredTimes, zonedTime } from "./calendar";
+import { CALL_DAYS, cadenceDate, DEFAULT_TIMEZONE, LINKEDIN_DAY, localDate, staggeredTimes, zonedTime } from "./calendar";
+import { fetchAttachment } from "@/services/attachments/case-studies";
 
 type User = typeof schema.users.$inferSelect;
 type Prospect = typeof schema.prospects.$inferSelect;
@@ -94,6 +95,8 @@ export async function approveEmails(userId: string, emailIds: string[], sendTime
 
 async function scheduleOne(user: User, prospect: Prospect, email: Email, sendAt: Date, signature?: string) {
   const subject = email.day === 1 ? email.subject! : replySubject(prospect.lastSubject ?? "");
+  // Case study chosen at drafting time; downloaded now so the Gmail draft carries the real file.
+  const attachments = email.attachment?.url ? [await fetchAttachment(email.attachment.url, email.attachment.title)] : [];
   const { draftId } = await upsertDraft(
     user.id,
     {
@@ -102,6 +105,7 @@ async function scheduleOne(user: User, prospect: Prospect, email: Email, sendAt:
       subject,
       body: withSignature(email.body ?? "", signature, user.name),
       inReplyTo: email.day === 1 ? null : prospect.rfcMessageId,
+      attachments,
     },
     { threadId: email.day === 1 ? null : prospect.threadId, existingDraftId: email.gmailDraftId },
   );
@@ -112,20 +116,32 @@ async function scheduleOne(user: User, prospect: Prospect, email: Email, sendAt:
   await enqueue(QUEUES.sendEmail, { emailId: email.id }, { startAfter: sendAt, singletonKey: `send:${email.id}:${sendAt.getTime()}` });
 
   if (email.day === 1) {
-    // Day 1 date anchors the rest of the cadence; create the SDR's call tasks (Day 1 call already happened).
+    // Day 1 date anchors the rest of the cadence; create the SDR's call tasks (Day 1 call already
+    // happened) and the Day 6 LinkedIn connection request.
     const settings = effectiveSettings(user);
     const day1 = localDate(sendAt, settings.timezone);
     await db.update(schema.prospects).set({ day1Date: day1, lastSubject: subject }).where(eq(schema.prospects.id, prospect.id));
     await db
       .insert(schema.callTasks)
       .values(
-        CALL_DAYS.map((day) => ({
-          prospectId: prospect.id,
-          userId: user.id,
-          day,
-          dueDate: cadenceDate(day1, day, settings.holidays ?? []),
-          status: day === 1 ? ("done" as const) : ("pending" as const),
-        })),
+        [
+          ...CALL_DAYS.map((day) => ({
+            prospectId: prospect.id,
+            userId: user.id,
+            day,
+            kind: "call",
+            dueDate: cadenceDate(day1, day, settings.holidays ?? []),
+            status: day === 1 ? ("done" as const) : ("pending" as const),
+          })),
+          {
+            prospectId: prospect.id,
+            userId: user.id,
+            day: LINKEDIN_DAY,
+            kind: "linkedin",
+            dueDate: cadenceDate(day1, LINKEDIN_DAY, settings.holidays ?? []),
+            status: "pending" as const,
+          },
+        ],
       )
       .onConflictDoNothing();
   }
@@ -148,7 +164,14 @@ export async function editEmail(userId: string, emailId: string, subject: string
     .where(and(eq(schema.emails.id, emailId), eq(schema.emails.userId, userId)));
   if (!row) throw new Error("Email not found");
   if (!["pending_review", "failed"].includes(row.email.status)) throw new Error("Only emails awaiting review can be edited here; edit scheduled ones in Gmail drafts");
-  const checks = checkEmail({ day: row.email.day, subject: row.email.day === 1 ? subject : null, body, knownClients: [], referenceableClients: [] });
+  const checks = checkEmail({
+    day: row.email.day,
+    subject: row.email.day === 1 ? subject : null,
+    body,
+    knownClients: [],
+    referenceableClients: [],
+    hasAttachment: !!row.email.attachment?.url,
+  });
   await db
     .update(schema.emails)
     .set({
@@ -194,7 +217,7 @@ export async function stopProspect(
   }
 }
 
-export const CALL_OUTCOMES = ["no_answer", "connected", "meeting_booked", "not_interested", "wrong_person"] as const;
+export const CALL_OUTCOMES = ["no_answer", "connected", "meeting_booked", "not_interested", "wrong_person", "linkedin_sent", "linkedin_skipped"] as const;
 export type CallOutcome = (typeof CALL_OUTCOMES)[number];
 
 export async function logCallOutcome(userId: string, callTaskId: string, outcome: CallOutcome, notes: string | null): Promise<void> {
@@ -205,7 +228,7 @@ export async function logCallOutcome(userId: string, callTaskId: string, outcome
     // Call notes feed the next email draft.
     await db
       .update(schema.prospects)
-      .set({ callNotes: sql`coalesce(${schema.prospects.callNotes} || E'\n', '') || ${`Day ${task.day} call: ${notes}`}` })
+      .set({ callNotes: sql`coalesce(${schema.prospects.callNotes} || E'\n', '') || ${`Day ${task.day} ${task.kind === "linkedin" ? "LinkedIn" : "call"}: ${notes}`}` })
       .where(eq(schema.prospects.id, task.prospectId));
   }
   if (outcome === "meeting_booked" || outcome === "not_interested" || outcome === "wrong_person") {
